@@ -29,6 +29,8 @@ from sglang.srt.model_executor.forward_batch_info import ForwardBatch
 class ForwardMetadata:
     query_start_loc: torch.Tensor
     mamba_cache_indices: torch.Tensor
+    # Logical extend length, before token padding. Shared by all KDA layers.
+    logical_num_tokens: Optional[int] = None
     mamba_cache_indices_gdn: Optional[torch.Tensor] = None
     # Mamba track DESTINATION slots (PHYSICAL, length == batch). Like
     # mamba_cache_indices: a backend-owned static buffer under cuda-graph (translated
@@ -80,6 +82,13 @@ class ForwardMetadata:
     has_mamba_track_mask: bool = False
     mamba_track_mask_indices: Optional[torch.Tensor] = None
     conv_states_mask_indices: Optional[torch.Tensor] = None
+
+    def get_logical_num_tokens(self) -> int:
+        if self.logical_num_tokens is None:
+            # GPU-only callers have no host mirror. Synchronize at most once
+            # per forward, rather than once per KDA layer.
+            self.logical_num_tokens = int(self.query_start_loc[-1])
+        return self.logical_num_tokens
 
 
 @dataclass(kw_only=True)
