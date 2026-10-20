@@ -57,6 +57,24 @@ def _can_pack_hicache_mtp(
     return is_nextn_mtp or is_dspark_dsv4
 
 
+def _hicache_mtp_rows_match(target_pool, draft_pools) -> bool:
+    """Packed MLA transfers must use the same byte rows for every layer."""
+    from sglang.srt.mem_cache.memory_pool import HybridLinearKVPool, MLATokenToKVPool
+
+    def unwrap(pool):
+        return pool.full_kv_pool if isinstance(pool, HybridLinearKVPool) else pool
+
+    target = unwrap(target_pool)
+    if not isinstance(target, MLATokenToKVPool):
+        return True
+    return all(
+        isinstance(unwrap(pool), MLATokenToKVPool)
+        and unwrap(pool).kv_cache_dim == target.kv_cache_dim
+        and unwrap(pool).store_dtype == target.store_dtype
+        for pool in draft_pools
+    )
+
+
 class EagleDraftWorkerBase(ABC):
     # topk=1 chain constants for draft_forward's fast path; None when topk > 1.
     _topk1_parents_prealloc: Optional[torch.Tensor] = None
@@ -271,11 +289,29 @@ class BaseSpecWorker(ABC):
             )
 
         if _can_pack_hicache_mtp(spec_algorithm, draft_runners):
-            target_model_runner.mtp_draft_device_pools = draft_pools
-            return HiCacheDraftPlan(
-                mode=HiCacheDraftMode.PACKED,
-                device_pools=draft_pools,
+            if _hicache_mtp_rows_match(
+                target_model_runner.token_to_kv_pool, draft_pools
+            ):
+                target_model_runner.mtp_draft_device_pools = draft_pools
+                return HiCacheDraftPlan(
+                    mode=HiCacheDraftMode.PACKED,
+                    device_pools=draft_pools,
+                )
+            if len(draft_pools) != 1:
+                raise NotImplementedError(
+                    "HiCache mismatched MTP rows require a single draft sidecar."
+                )
+            target_state = getattr(
+                target_model_runner.req_to_token_pool, "mamba_pool", None
             )
+            draft_state = getattr(
+                draft_runners[0].req_to_token_pool, "mamba_pool", None
+            )
+            if draft_state is not None and draft_state is not target_state:
+                raise NotImplementedError(
+                    "HiCache mismatched MTP rows with separate recurrent state "
+                    "need an additional state sidecar."
+                )
 
         if get_memory().enable_unified_cache_external_linker:
             raise NotImplementedError(

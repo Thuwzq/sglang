@@ -531,6 +531,10 @@ class MambaComponent(TreeComponent):
     ) -> Optional[int]:
         if self.cache.enable_mamba_extra_buffer:
             cache_len = req.kv.mamba_last_track_seqlen
+            # A checkpoint after a truncated key cannot describe that prefix.
+            # Decline caching rather than attach later recurrent state to it.
+            if is_finished and cache_len is not None and cache_len > token_ids_len:
+                return 0
         else:
             cache_len = token_ids_len
             # ReplaySSM (no_buffer): `temporal[slot]` lags the live state by the

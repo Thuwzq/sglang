@@ -1268,6 +1268,9 @@ class EAGLEWorkerV2(BaseSpecWorker):
         pp_proxy_tensors: Optional[PPProxyTensors] = None,
     ):
         if batch.forward_mode.is_extend() or batch.is_extend_in_batch:
+            if batch.has_grammar and grammar_barrier is not None:
+                grammar_barrier()
+
             # Target prefill
             target_capture_mode = (
                 CaptureHiddenMode.NULL
@@ -1616,6 +1619,7 @@ class EAGLEWorkerV2(BaseSpecWorker):
             get_spec().speculative_num_draft_tokens,
             get_exec().graph.cuda_graph_bs_decode,
             get_exec().graph.disable_cuda_graph,
+            get_exec().graph.cuda_graph_config,
         )
 
         self.speculative_num_steps = speculative_num_steps
@@ -1628,6 +1632,15 @@ class EAGLEWorkerV2(BaseSpecWorker):
             speculative_num_draft_tokens=speculative_num_draft_tokens,
         )
         if cuda_graph_bs is not None:
+            import copy
+
+            # The runners consume the resolved per-phase configuration.
+            # Keep it aligned with the legacy adaptive capture override.
+            capture_config = copy.deepcopy(backup[14])
+            capture_config.decode.bs = list(cuda_graph_bs)
+            capture_config.decode.max_bs = max(cuda_graph_bs, default=1)
+            if not cuda_graph_bs:
+                capture_config.decode.backend = Backend.DISABLED
             # BS-aware adaptive spec may prune cuda_graph_bs to an empty list
             # for steps that no BS range uses (e.g. step=1). Disable graph
             # capture for those steps; restore in finally so subsequent steps
@@ -1635,6 +1648,7 @@ class EAGLEWorkerV2(BaseSpecWorker):
             get_context().override(
                 "adaptive_spec.capture_override",
                 cuda_graph_bs_decode=cuda_graph_bs,
+                cuda_graph_config=capture_config,
                 **({"disable_cuda_graph": True} if not cuda_graph_bs else {}),
             )
         dw._rebuild_topk1_chain_buffers()
@@ -1660,6 +1674,7 @@ class EAGLEWorkerV2(BaseSpecWorker):
                 speculative_num_draft_tokens=backup[11],
                 cuda_graph_bs_decode=backup[12],
                 disable_cuda_graph=backup[13],
+                cuda_graph_config=backup[14],
             )
             dw._rebuild_topk1_chain_buffers()
 

@@ -23,6 +23,7 @@ from sglang.srt.mem_cache.pool_host.base import (
 )
 from sglang.srt.mem_cache.pool_host.common import (
     ALLOC_MEMORY_FUNCS,
+    _cuda_host_unregister,
     get_allocator_from_storage,
     make_kernel_ptr_table,
 )
@@ -63,6 +64,7 @@ class DSAIndexerPoolHost(HostKVCache):
         is_dummy: bool = False,
     ):
         self._is_dummy = is_dummy
+        self._destroyed = False
         self.device_pool = device_pool
         self.page_size = anchor_host.page_size
         self.layout = layout
@@ -140,6 +142,15 @@ class DSAIndexerPoolHost(HostKVCache):
         self._init_write_back_staging_buffers()
         self.lock = threading.RLock()
         self.clear()
+
+    def destroy(self):
+        if self._destroyed:
+            return
+        if not self._is_dummy and self.pin_memory and (_is_cuda or _is_hip):
+            _cuda_host_unregister(self.index_k_with_scale_buffer)
+        self.index_k_with_scale_buffer = None
+        self.index_k_data_refs = []
+        super().destroy()
 
     def get_size_per_token(self):
         return (
