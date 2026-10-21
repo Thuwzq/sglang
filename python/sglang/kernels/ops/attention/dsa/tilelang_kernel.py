@@ -1431,7 +1431,14 @@ def tilelang_sparse_fwd(
             if tail_dim == 0
             else sparse_attention_fwd_kernel_v2
         )
-        kernel = kernel_factory(num_heads, d_v, tail_dim, topk, sm_scale=sm_scale)
+        # PRO5000 SM120 NoPE tile: keep dynamic shared memory within device limit.
+        sm120_nope = (
+            torch.cuda.get_device_capability(q.device) == (12, 0) and tail_dim == 0
+        )
+        options = dict(block_I=32, num_stages=1, threads=128) if sm120_nope else {}
+        kernel = kernel_factory(
+            num_heads, d_v, tail_dim, topk, sm_scale=sm_scale, **options
+        )
         out = kernel(q.unsqueeze(0), kv.unsqueeze(0), indices.unsqueeze(0))  # type: ignore
     return out
 
