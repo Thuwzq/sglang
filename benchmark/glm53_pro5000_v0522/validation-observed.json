@@ -1,0 +1,85 @@
+{
+  "image": "lmsysorg/sglang:v0.5.22",
+  "started_at_utc": "2026-10-21T03:54:29.497580867Z",
+  "configuration": {
+    "tp": 8,
+    "ep": 1,
+    "sp": false,
+    "mtp": false,
+    "mixed_chunk": false,
+    "hicache": false,
+    "dsa_prefill_backend": "tilelang",
+    "dsa_decode_backend": "tilelang",
+    "linear_attention_all_phases": "triton",
+    "kv_cache_dtype": "bfloat16",
+    "decode_graph_buckets": [
+      1,
+      2,
+      4,
+      8,
+      16,
+      32
+    ],
+    "context_length_configured": 1048576,
+    "context_1m_validated": false
+  },
+  "smoke": {
+    "health_http": 200,
+    "nonstream": {
+      "http": 200,
+      "finish_reason": "stop",
+      "answer_correct": true,
+      "prompt_tokens": 23,
+      "completion_tokens": 50,
+      "seconds": 0.712
+    },
+    "stream": {
+      "http": 200,
+      "done": true,
+      "finish_reasons": [
+        "stop"
+      ],
+      "output_chars": 154,
+      "chunks": 49,
+      "errors": [],
+      "seconds": 0.67
+    }
+  },
+  "startup_log_counts": {
+    "Traceback": 0,
+    "CUDA out of memory": 0,
+    "illegal memory access": 0,
+    "grammar.accept_token failed": 0
+  },
+  "gpu_each_MiB": {
+    "used": 56579,
+    "free": 16252
+  },
+  "limitations": [
+    "Only short connectivity smoke verified",
+    "Full previous baseline patches not migrated",
+    "No long-context or concurrency qualification",
+    "Original default baseline preserved"
+  ],
+  "provenance": "Manually transcribed from the PRO5000 WeTERM console. Raw logs remain on the device; this is not a downloaded raw log. Internal host addresses and user paths omitted.",
+  "hardware": "8 x RTX PRO 5000 72GB, SM120",
+  "base_commit": "baa9befa381511cd4d56f83980951e5a45fffc6d",
+  "upstream_tag": "v0.5.22",
+  "image_id": "sha256:b7df4d07a9200eafde320a0ccd5de2efd0c4c047c8116f3233c7fd582c319db5",
+  "deployed_source_sha256": "0a9ff7cf3e342883fe7dec0488a2cdcbfb70c7f5005b185145c9ce28140b656b",
+  "repository_source_sha256": "c916b7221852b3b9bdd82d746135f3046cfe7be8671111dad28324438c07407a",
+  "matching_source_ast_sha256": "f01e6d6f8208d95f9698dd64f1e98e77b355c5c3bdc7525ecaf474720b560d19",
+  "server_argv_sha256": "be29f39e98914afb1b59b978a8a4e21057442739c53b79236e235df2c94e0cf3",
+  "known_issues": [
+    {
+      "id": "V0522-SM120-TILE",
+      "status": "mitigated_by_this_patch",
+      "symptom": "Default NoPE tile requested 151552 bytes of dynamic shared memory during decode Graph capture; launch failed."
+    },
+    {
+      "id": "V0522-SP-WARMUP",
+      "status": "open_workaround_disable_sp",
+      "symptom": "FFN boundary reduce_scatter raised ValueError: input tensor must be the same size as output size times world size. Seen during warmup with SP; disabling SP passed warmup and smoke. Root cause not established."
+    }
+  ]
+}
