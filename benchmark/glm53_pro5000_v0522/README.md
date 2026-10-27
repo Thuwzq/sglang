@@ -1,11 +1,74 @@
-# GLM-5.3-Flash on PRO5000: v0.5.22 bring-up
+# GLM-5.3-Flash on PRO5000: v0.5.22 fixes and validation
 
 This branch starts at official tag `v0.5.22`, commit
 `baa9befa381511cd4d56f83980951e5a45fffc6d`, matching the imported image build.
-The v0.5.20 branch `glm5.3-flash-fp8-pro5000` remains the previous optimized
-baseline. This branch currently contains only the SM120 NoPE TileLang small-tile
-repair and the minimal deployment profile. It is not yet a replacement for
-that full baseline.
+The v0.5.20 branch `glm5.3-flash-fp8-pro5000` retains the earlier implementation.
+This branch, `glm5.3-flash-fp8-pro5000-v0.5.22`, contains the three maintained
+runtime source overrides listed below. The original minimal BF16 launch helper
+and its observations are preserved as a **2026-10-21 bring-up snapshot**; that
+helper is not the current FP8 KV / HiCache / MTP deployment command.
+
+## Patch inventory, audited 2026-10-27
+
+| Source | Change | Validation |
+| --- | --- | --- |
+| `python/sglang/kernels/ops/attention/dsa/tilelang_kernel.py` | SM120 NoPE small tile; avoids excessive dynamic shared memory during Graph capture | Original bring-up smoke and later deployed use |
+| `python/sglang/srt/models/glm5_next.py` | Restore DSA physical TP padding before the attention boundary wraps the output | 4 CPU tests; earlier SP + mixed chunk + HiCache device checks |
+| `python/sglang/srt/speculative/eagle_worker_v2.py` | Commit pending grammar state before extend/mixed-extend sampling under speculative overlap | 6 CPU tests; earlier 49/49 structured SSE requests |
+
+The read-only deployment audit compared all three complete parsed ASTs against
+the running container: all matched. The grammar worker also matched byte for
+byte; the kernel and model files have textual differences but identical ASTs.
+The audit reran all 10 CPU tests against the actual deployed sources, with no
+failures or errors. It did not restart the service or generate inference load.
+See [fixes-validation-20261027.json](fixes-validation-20261027.json) for source
+fingerprints, test scope and limitations.
+
+### SP DSA padding
+
+With attention TP input scattering, the DSA path can return only logical token
+rows while the subsequent reduce-scatter and mHC residual still require the
+physical padded row count. Restore zero dummy rows **before**
+`attn_boundary.finish`, which may wrap the unreduced output. Reject an
+unexpected loss of real rows rather than silently padding it. KDA and SP-off
+paths retain their existing behavior.
+
+The regression covers logical lengths 6, 7, 9, 4,103 and 4,096, unchanged real
+rows and routing indices, zero dummy rows, SP-off, KDA and invalid row loss.
+The earlier device experiment passed 9 mixed SSE requests and 32 concurrent SSE
+requests, plus a host-cache restore probe. These are functional checks, not a
+broad model-accuracy certification.
+
+### Speculative mixed-extend grammar barrier
+
+The v0.5.22 worker accepted a `grammar_barrier` callback but skipped it in the
+extend/mixed-extend dispatch. With overlapping speculative work, a request could
+sample from grammar state that had not yet consumed its preceding accepted
+tokens. Later `grammar.accept_token()` could reject the result, producing an
+HTTP 200 SSE stream whose finish reason was `abort`.
+
+Call the existing barrier before this branch samples when the batch has grammar
+and a callback is available. Decode dispatch, speculative acceptance rules and
+mixed-chunk enablement are unchanged. The six CPU tests exercise pending-result
+ordering, both extend dispatch conditions, a new prefill grammar, no grammar,
+and absent callbacks. Earlier patched GPU regression passed 49/49 structured
+streams across single, concurrency-8 short/mixed-32K/mixed-128K, concurrency-16
+JSON schema and concurrency-8 tool-call cases. Every stream ended legally and
+included `[DONE]`; the regression log window contained no matched grammar,
+abort, OOM, GPU, traceback, NCCL, watchdog or HTTP 5xx errors.
+
+Run the CPU regressions from the repository root (PyTorch is required for the
+padding test; neither test imports model GPU kernels):
+
+```bash
+python3 test/registered/unit/models/test_glm5_next_sp_padding.py -v
+python3 test/registered/unit/speculative/test_eagle_mixed_extend_grammar_barrier.py -v
+```
+
+For offline stock-image deployment, use this checkout's three source overrides
+at the matching paths beneath `/sgl-workspace/sglang/` as read-only bind mounts,
+or build an image from this branch. The historical helper below mounts only the
+kernel; it does not deploy the later model and grammar fixes.
 
 ## Kernel repair
 
@@ -19,7 +82,7 @@ their full parsed AST hashes match. Both source hashes and the common AST hash
 are recorded in [validation-observed.json](validation-observed.json).
 This check establishes source correspondence, not model numerical equivalence.
 
-## Recorded profile
+## Historical minimal profile, 2026-10-21
 
 | Setting | Value |
 | --- | --- |
@@ -99,39 +162,32 @@ Internal addresses and user-specific host paths are omitted from this directory.
 The durations are total short-request times, not TTFT or steady-state decode
 throughput. Graph capture through batch 32 completed; actual concurrent batch-32
 inference was not validated in this bring-up. 1M is configured, but no 1M request
-or concurrency matrix has been validated on v0.5.22. The small smoke does not
+or concurrency matrix was validated in this minimal bring-up. The small smoke does not
 establish full numerical accuracy or long-running stability.
 
-## Open issue and migration queue
+## Deployment scope and remaining limits
 
-Enabling `--enable-attn-tp-input-scattered` reached warmup but failed in
-`glm5_next.py` at the FFN boundary preparation, followed by `reduce_scatter`:
+The initial SP warmup failure (`input tensor must be the same size as output
+size times world size`) was subsequently addressed by the padding repair above.
+The initial kernel shared-memory failure and SP failure were separate failed
+instances, not errors in the successful minimal instance.
 
-```text
-ValueError: input tensor must be the same size as output size times world size
-```
+The 2026-10-27 audited running profile used TP8/PP1/EP1, FP8 DSA KV, mixed chunk,
+overlap, adaptive MTP 0/1/3 and HiCache ratio 13; SP was disabled. Active and Graph
+limits were 64, recurrent slots 320, requested GPU KV capacity 1,200,000 tokens
+(actual page-aligned capacity 1,199,872), chunk/prefill budget 1,024 and context
+limit 1,048,576. These settings describe that instance and do not promote it over
+other saved baselines or override their independent capacity/performance tests.
 
-The same profile with SP disabled completed warmup and the short protocol smoke.
-SP remains disabled as a workaround; its root cause and repair are pending.
-The earlier shared-memory capture error and this SP error belong to separate
-failed instances and are not new errors in the successful instance.
+Earlier v0.5.20 KDA, HiCache and Graph patches are not blindly copied into this
+branch. Only the three v0.5.22 source changes in the inventory are maintained
+here; upstream-provided behavior and unrelated scheduler experiments are outside
+this patch set. FlashInfer-versus-TileLang measurements and adaptive chunk
+experiments are not part of these correctness regressions.
 
-| Previous change | v0.5.22 status |
-| --- | --- |
-| SM120 NoPE small tile | Migrated and short device smoke passed |
-| KDA host-length reuse | Pending upstream audit and migration if needed |
-| Hybrid HiCache index geometry/restore/cleanup | Pending upstream audit and migration if needed; HiCache disabled |
-| Packed MTP row guard and recurrent checkpoint ownership | Pending upstream audit and migration if needed; MTP disabled |
-| Mixed-extend grammar barrier | Pending upstream audit and migration if needed; MTP/mixed chunk disabled |
-| Adaptive MTP Graph pruning | Pending upstream audit and migration if needed; MTP disabled |
-| Native FlashInfer GLM NoPE + FP8 KV | Not implemented or validated by this branch |
-
-Port each remaining change independently after checking the new upstream code.
-Neither all old patches nor their test results are inherited by this branch.
-Publishing these files does not restart the running service or resume monitoring.
-
-Local publication checks passed: Ruff 0.15.1 formatting, the repository's selected
-Python lint rules plus import ordering, Python syntax parsing, launch-helper dry
-run, deployment AST/argv hash comparisons, and `git diff --check`. The helper is
-a new host-path adapter verified locally in dry-run mode; the device observations
-above came from the original launch command, not a fresh run of this helper.
+The grammar GPU results are from the preceding deployment acceptance test, not a
+new pre/post GPU A/B during this source sync. They cover inputs up to 132,043
+tokens, not a 1M Agent endurance run. The CPU tests model dispatch and boundary
+contracts and cannot certify GPU numerical accuracy. No throughput gain, full
+model accuracy or long-duration success-rate guarantee is inferred from them.
+Publishing this branch does not restart the running service or resume monitoring.

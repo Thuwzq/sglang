@@ -1,0 +1,96 @@
+{
+  "audited_date": "2026-10-27",
+  "upstream_tag": "v0.5.22",
+  "upstream_commit": "baa9befa381511cd4d56f83980951e5a45fffc6d",
+  "branch": "glm5.3-flash-fp8-pro5000-v0.5.22",
+  "source_audit": {
+    "all_three_complete_asts_equal_to_deployment": true,
+    "grammar_worker_byte_equal": true,
+    "kernel_and_model_byte_equal": false,
+    "overrides_read_only": true,
+    "audit_started_at_utc": "2026-10-27T08:10:59.160210+00:00",
+    "service_instance_unchanged": true,
+    "local_sha256": {
+      "python/sglang/kernels/ops/attention/dsa/tilelang_kernel.py": "c916b7221852b3b9bdd82d746135f3046cfe7be8671111dad28324438c07407a",
+      "python/sglang/srt/models/glm5_next.py": "f95b434340fbf1e56bb4ae1b57efba49a87c1cf6cf1f1adc6dcd9d80451c1d90",
+      "python/sglang/srt/speculative/eagle_worker_v2.py": "ae1005b016883b5ddf51381b805fc2acdd872f202924b45264c7771b5785a619"
+    },
+    "provenance": "Remote CPU-only audit, observed in WeTERM and transcribed; raw audit retained on the device. No raw request data is included."
+  },
+  "cpu_regression": {
+    "methods": 10,
+    "failures": 0,
+    "errors": 0,
+    "runtime_s": 0.39,
+    "execution": "Actual deployed source methods extracted with AST; CPU stubs and CPU torch tensors; no GPU kernels or inference requests.",
+    "files": [
+      "test/registered/unit/models/test_glm5_next_sp_padding.py",
+      "test/registered/unit/speculative/test_eagle_mixed_extend_grammar_barrier.py"
+    ]
+  },
+  "prior_device_validation": {
+    "sp_padding": {
+      "date": "2026-10-21",
+      "mixed_sse_passed": 9,
+      "concurrent_sse_passed": 32,
+      "host_cache_restore_probe_passed": true,
+      "broad_accuracy_certified": false
+    },
+    "grammar_barrier": {
+      "date": "2026-10-27",
+      "sse_passed": 49,
+      "sse_total": 49,
+      "abort": 0,
+      "max_observed_prompt_tokens": 132043,
+      "case_counts": {
+        "single": 1,
+        "short8": 8,
+        "mixed32k": 8,
+        "mixed128k": 8,
+        "schema16": 16,
+        "tool8": 8
+      },
+      "log_window_utc": [
+        "2026-10-27T03:54:21.793494+00:00",
+        "2026-10-27T03:55:19.478657+00:00"
+      ],
+      "log_lines": 463,
+      "matched_errors": {
+        "grammar": 0,
+        "abort": 0,
+        "oom": 0,
+        "gpu": 0,
+        "traceback": 0,
+        "nccl": 0,
+        "watchdog": 0,
+        "http5xx": 0
+      }
+    }
+  },
+  "limitations": [
+    "Historical minimal launch helper remains a BF16 snapshot and mounts only the kernel.",
+    "No new GPU inference benchmark or service restart during this audit.",
+    "No controlled pre-patch GPU A/B, 1M Agent endurance or broad accuracy qualification.",
+    "CPU stubs validate control-flow and row-layout contracts, not full model numerics."
+  ],
+  "local_checks": {
+    "ruff_version": "0.15.1",
+    "isort_version": "7.0.0",
+    "ruff_format": "passed",
+    "ruff_selected_rules": [
+      "F401",
+      "F821",
+      "F823",
+      "UP037"
+    ],
+    "import_order": "passed",
+    "syntax_parse": "passed",
+    "git_diff_check": "passed",
+    "grammar_negative_control": {
+      "source": "unpatched parent HEAD f2773f7b71320fda44d17591adc7c2ee7d7333ff",
+      "tests": 6,
+      "defect_sensitive_failures_expected": 3,
+      "unaffected_controls_passed": 3
+    }
+  }
+}

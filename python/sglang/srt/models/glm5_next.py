@@ -981,6 +981,27 @@ class Glm5NextDecoderLayer(nn.Module):
             topk_indices = None
         get_attn_tp_context().clear_attn_inputs()
 
+        # DSA can return only logical rows; the input-scattered boundary still
+        # needs the physical TP padding for reduce-scatter and the mHC residual.
+        # Restore dummy rows before finish wraps the unreduced contribution.
+        if not self.is_linear_attn and get_attn_tp_context().input_scattered:
+            padded_rows = forward_batch.input_ids.shape[0]
+            if hidden_states.shape[0] != padded_rows:
+                real_rows = forward_batch.global_num_token_non_padded_cpu
+                if hidden_states.shape[0] != real_rows or real_rows >= padded_rows:
+                    raise ValueError(
+                        f"Unexpected scattered attention rows: {hidden_states.shape[0]}, real={real_rows}, padded={padded_rows}"
+                    )
+                hidden_states = torch.cat(
+                    (
+                        hidden_states,
+                        hidden_states.new_zeros(
+                            (padded_rows - real_rows, *hidden_states.shape[1:])
+                        ),
+                    ),
+                    dim=0,
+                )
+
         hidden_states = self.attn_boundary.finish(hidden_states, forward_batch)
         hidden_states = self.ffn_boundary.prepare(hidden_states, forward_batch)
 

@@ -1355,6 +1355,10 @@ class EAGLEWorkerV2(BaseSpecWorker):
         pp_proxy_tensors: Optional[PPProxyTensors] = None,
     ):
         if batch.forward_mode.is_extend() or batch.is_extend_in_batch:
+            # Mixed extend may sample requests whose previous speculative
+            # tokens have not yet advanced the grammar FSM in overlap mode.
+            if batch.has_grammar and grammar_barrier is not None:
+                grammar_barrier()
             if not (
                 batch.is_extend_in_batch and self.enable_dp_spec_prefill_coordination
             ):
